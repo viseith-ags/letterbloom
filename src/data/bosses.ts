@@ -20,7 +20,7 @@ export const BOSSES: BossDef[] = [
   {
     id: 'muteVowels',
     name: 'Quiet Vowels',
-    description: 'Vowels score 0 chips this round.',
+    description: 'Vowels score 0 points this round.',
   },
   {
     id: 'mustInclude',

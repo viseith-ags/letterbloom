@@ -2,9 +2,9 @@ import { BOSSES } from '../data/bosses'
 import { JOKER_BY_ID } from '../data/jokers'
 import { drawToHandSize, makeStartingBag, spendTiles } from './bag'
 import { loadRecords, saveRecords } from './records'
-import { scoreWord, validatePlay } from './scoring'
+import { jokerSellValue, scoreWord, validatePlay } from './scoring'
 import { addPurchasedLetter, generateShopOffers } from './shop'
-import type { ActiveBoss, BossId, RunState, Tile } from './types'
+import type { ActiveBoss, BossId, Payout, RunState, Tile } from './types'
 
 export function isBossRound(round: number): boolean {
   return round > 0 && round % 3 === 0
@@ -61,6 +61,18 @@ function drawBoss(queue: BossId[]): { bossId: BossId; queue: BossId[] } {
   return { bossId, queue: nextQueue }
 }
 
+function emptyVisuals() {
+  return {
+    lastScore: null as RunState['lastScore'],
+    spotlightTiles: [] as Tile[],
+    lastDrawnIds: [] as string[],
+    lastDiscarded: [] as Tile[],
+    lastPayout: null as Payout | null,
+    pendingFill: null as RunState['pendingFill'],
+    pendingOutcome: null as RunState['pendingOutcome'],
+  }
+}
+
 export function titleState(): RunState {
   const records = loadRecords()
   return {
@@ -84,9 +96,9 @@ export function titleState(): RunState {
     shopOffers: [],
     rerollCost: 2,
     nextTileId: 1,
-    lastScore: null,
     toast: null,
     records,
+    ...emptyVisuals(),
   }
 }
 
@@ -129,7 +141,13 @@ function beginRound(state: RunState, round: number): RunState {
     boss,
     bossQueue,
     lastScore: null,
-    toast: boss ? null : `Round ${round} — hit ${targetForRound(round, bossRound)}`,
+    spotlightTiles: [],
+    lastDrawnIds: filled.drawn.map((t) => t.id),
+    lastDiscarded: [],
+    lastPayout: null,
+    pendingFill: null,
+    pendingOutcome: null,
+    toast: boss ? null : `Round ${round} — hit ${targetForRound(round, bossRound)} points`,
   }
 }
 
@@ -154,7 +172,7 @@ export function startRun(): RunState {
 
 export function dismissBossIntro(state: RunState): RunState {
   if (state.phase !== 'bossIntro') return state
-  return { ...state, phase: 'playing', toast: `Round ${state.round} — ${state.target} to beat` }
+  return { ...state, phase: 'playing', toast: `Round ${state.round} — ${state.target} points to beat` }
 }
 
 export function selectedTiles(state: RunState): Tile[] {
@@ -176,6 +194,7 @@ export function toggleSelect(state: RunState, tileId: string): RunState {
 }
 
 export function clearSelection(state: RunState): RunState {
+  if (state.phase !== 'playing') return state
   return { ...state, selectedIds: [] }
 }
 
@@ -196,46 +215,25 @@ export function moveSelected(state: RunState, from: number, to: number): RunStat
   return { ...state, selectedIds: ids }
 }
 
-function piggyInterest(state: RunState): number {
-  const banks = state.jokers.filter((id) => id === 'piggyBank').length
+function piggyInterest(coins: number, jokers: string[]): number {
+  const banks = jokers.filter((id) => id === 'piggyBank').length
   if (!banks) return 0
-  return banks * Math.floor(state.coins / 5)
+  return banks * Math.floor(coins / 5)
 }
 
-function payout(state: RunState): number {
+function computePayout(state: RunState, playsLeftAfter: number): Payout {
   const base = 4 + Math.floor(state.round / 2)
-  const unused = state.playsLeft
+  const unusedPlays = playsLeftAfter
   const bossBonus = state.boss ? 3 : 0
-  return base + unused + bossBonus
-}
-
-function finishWonRound(state: RunState): RunState {
-  const coinsGained = payout(state)
-  let next: RunState = {
-    ...state,
-    streak: state.round,
-    runScore: state.runScore + state.roundScore,
-    coins: state.coins + coinsGained,
-    selectedIds: [],
-    lastScore: state.lastScore,
+  const beforeInterest = state.coins + base + unusedPlays + bossBonus
+  const interest = piggyInterest(beforeInterest, state.jokers)
+  return {
+    base,
+    unusedPlays,
+    bossBonus,
+    interest,
+    total: base + unusedPlays + bossBonus + interest,
   }
-  const interest = piggyInterest(next)
-  next = { ...next, coins: next.coins + interest }
-  next.records = saveRecords({ bestStreak: next.streak, bestScore: next.runScore })
-  next.toast = `Cleared! +${coinsGained + interest} coins`
-
-  if (isShopRound(state.round)) {
-    const shop = generateShopOffers(next.jokers, next.nextTileId)
-    return {
-      ...next,
-      phase: 'shop',
-      shopOffers: shop.offers,
-      rerollCost: 2,
-      nextTileId: shop.nextId,
-      boss: null,
-    }
-  }
-  return beginRound({ ...next, boss: null }, state.round + 1)
 }
 
 function endRun(state: RunState, toast: string): RunState {
@@ -243,7 +241,16 @@ function endRun(state: RunState, toast: string): RunState {
     bestStreak: state.streak,
     bestScore: state.runScore,
   })
-  return { ...state, phase: 'gameOver', records, toast, selectedIds: [] }
+  return {
+    ...state,
+    phase: 'gameOver',
+    records,
+    toast,
+    selectedIds: [],
+    spotlightTiles: [],
+    pendingFill: null,
+    pendingOutcome: null,
+  }
 }
 
 export function playWord(state: RunState): RunState {
@@ -255,23 +262,103 @@ export function playWord(state: RunState): RunState {
 
   const breakdown = scoreWord(tiles, state.jokers, state.boss, state.hand.length)
   const spent = spendTiles(state.hand, state.selectedIds, state.discardPile)
+  const playsLeft = state.playsLeft - 1
   const roundScore = state.roundScore + breakdown.total
-  const next: RunState = {
+  const won = roundScore >= state.target
+  const lost = !won && playsLeft <= 0
+  const filled = lost || won ? null : drawToHandSize(spent.hand, state.bag, spent.discardPile, state.handSize)
+
+  return {
     ...state,
-    hand: spent.hand,
+    phase: 'scoring',
+    bag: state.bag,
     discardPile: spent.discardPile,
+    hand: spent.hand,
     selectedIds: [],
-    playsLeft: state.playsLeft - 1,
+    playsLeft,
     roundScore,
     lastScore: breakdown,
-    toast: `${breakdown.word}  ${breakdown.chips} × ${breakdown.mult} = ${breakdown.total}`,
+    spotlightTiles: tiles,
+    lastDrawnIds: [],
+    lastDiscarded: [],
+    lastPayout: won ? computePayout({ ...state, playsLeft }, playsLeft) : null,
+    pendingFill: filled
+      ? {
+          hand: filled.hand,
+          bag: filled.bag,
+          discardPile: filled.discardPile,
+          drawnIds: filled.drawn.map((t) => t.id),
+        }
+      : null,
+    pendingOutcome: won ? 'won' : lost ? 'lost' : 'continue',
+    toast: null,
+  }
+}
+
+export function resolveScoring(state: RunState): RunState {
+  if (state.phase !== 'scoring') return state
+  if (state.pendingOutcome === 'lost') {
+    return endRun(state, `Missed ${state.target} points. Streak ${state.streak}.`)
+  }
+  if (state.pendingOutcome === 'won') {
+    const payout = state.lastPayout ?? computePayout(state, state.playsLeft)
+    const coins = state.coins + payout.total
+    const streak = state.round
+    const runScore = state.runScore + state.roundScore
+    const records = saveRecords({ bestStreak: streak, bestScore: runScore })
+    return {
+      ...state,
+      phase: 'reward',
+      coins,
+      streak,
+      runScore,
+      records,
+      lastPayout: payout,
+      spotlightTiles: [],
+      pendingFill: null,
+      pendingOutcome: null,
+      toast: null,
+    }
   }
 
-  if (roundScore >= state.target) return finishWonRound(next)
-  if (next.playsLeft <= 0) {
-    return endRun(next, `Missed ${state.target}. Streak ${state.streak}.`)
+  const fill = state.pendingFill
+  if (!fill) {
+    return { ...state, phase: 'playing', spotlightTiles: [], lastScore: null }
   }
-  return next
+  return {
+    ...state,
+    phase: 'playing',
+    bag: fill.bag,
+    discardPile: fill.discardPile,
+    hand: fill.hand,
+    lastDrawnIds: fill.drawnIds,
+    spotlightTiles: [],
+    pendingFill: null,
+    pendingOutcome: null,
+    lastScore: null,
+  }
+}
+
+export function collectReward(state: RunState): RunState {
+  if (state.phase !== 'reward') return state
+  const after = {
+    ...state,
+    lastPayout: null,
+    lastScore: null,
+    spotlightTiles: [],
+    boss: null as ActiveBoss | null,
+  }
+  if (isShopRound(state.round)) {
+    const shop = generateShopOffers(after.jokers, after.nextTileId)
+    return {
+      ...after,
+      phase: 'shop',
+      shopOffers: shop.offers,
+      rerollCost: 2,
+      nextTileId: shop.nextId,
+    }
+  }
+  return beginRound(after, state.round + 1)
 }
 
 export function discardSelected(state: RunState): RunState {
@@ -283,14 +370,44 @@ export function discardSelected(state: RunState): RunState {
   const filled = drawToHandSize(spent.hand, state.bag, spent.discardPile, state.handSize)
   return {
     ...state,
-    bag: filled.bag,
-    discardPile: filled.discardPile,
-    hand: filled.hand,
+    bag: state.bag,
+    discardPile: spent.discardPile,
+    hand: spent.hand,
     selectedIds: [],
     discardsLeft: state.discardsLeft - 1,
-    toast: `Discarded ${spent.spent.length}. Drew back to ${filled.hand.length}.`,
+    lastDiscarded: spent.spent,
+    lastDrawnIds: [],
     lastScore: null,
+    toast: null,
+    pendingFill: {
+      hand: filled.hand,
+      bag: filled.bag,
+      discardPile: filled.discardPile,
+      drawnIds: filled.drawn.map((t) => t.id),
+    },
   }
+}
+
+export function clearDiscardFx(state: RunState): RunState {
+  if (state.lastDiscarded.length === 0 && !state.pendingFill) return state
+  const fill = state.pendingFill
+  if (fill) {
+    return {
+      ...state,
+      bag: fill.bag,
+      discardPile: fill.discardPile,
+      hand: fill.hand,
+      lastDrawnIds: fill.drawnIds,
+      lastDiscarded: [],
+      pendingFill: null,
+    }
+  }
+  return { ...state, lastDiscarded: [] }
+}
+
+export function clearDrawFx(state: RunState): RunState {
+  if (state.lastDrawnIds.length === 0) return state
+  return { ...state, lastDrawnIds: [] }
 }
 
 export function buyOffer(state: RunState, offerId: string): RunState {
@@ -319,6 +436,20 @@ export function buyOffer(state: RunState, offerId: string): RunState {
     nextTileId: made.nextId,
     shopOffers: state.shopOffers.filter((o) => o.id !== offerId),
     toast: `Added ${offer.letter === '*' ? 'blank' : offer.letter} to the bag.`,
+  }
+}
+
+export function sellJoker(state: RunState, index: number): RunState {
+  if (state.phase !== 'shop') return state
+  const id = state.jokers[index]
+  if (!id) return state
+  const value = jokerSellValue(id)
+  const jokers = state.jokers.filter((_, i) => i !== index)
+  return {
+    ...state,
+    jokers,
+    coins: state.coins + value,
+    toast: `Sold ${JOKER_BY_ID[id]?.name ?? 'a joker'} for ${value}✦.`,
   }
 }
 

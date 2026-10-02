@@ -1,32 +1,86 @@
-import { useMemo, useState } from 'react'
-import { bossBannerText } from './game/scoring'
+import { useEffect, useMemo, useState } from 'react'
+import { bossBannerText, scoreWord, validatePlay } from './game/scoring'
 import {
   assignWild,
   backToTitle,
   buyOffer,
+  clearDiscardFx,
+  clearDrawFx,
   clearSelection,
+  collectReward,
   discardSelected,
   dismissBossIntro,
   leaveShop,
   playWord,
   rerollShop,
+  resolveScoring,
   selectedTiles,
+  sellJoker,
   startRun,
   titleState,
   toggleSelect,
   moveSelected,
 } from './game/run'
-import type { RunState } from './game/types'
+import type { RunState, ScoreStep } from './game/types'
 import { BossBanner } from './ui/BossBanner'
+import { CornerWells, FlyingTiles, type FlyOrigin } from './ui/FlyingTiles'
 import { GameOver } from './ui/GameOver'
 import { Rack } from './ui/Rack'
-import { ScoreFlyup } from './ui/ScoreFlyup'
+import { Reward } from './ui/Reward'
+import { ScoreBanner } from './ui/ScoreBanner'
 import { Shop } from './ui/Shop'
 import { JokerRow, PlayRow } from './ui/Table'
 
 export default function App() {
   const [state, setState] = useState<RunState>(() => titleState())
-  const played = useMemo(() => selectedTiles(state), [state])
+  const [activeJoker, setActiveJoker] = useState<string | null>(null)
+  const [scoringLetter, setScoringLetter] = useState(-1)
+  const [discardOrigins, setDiscardOrigins] = useState<FlyOrigin[]>([])
+  const played = useMemo(() => {
+    if (state.phase === 'scoring') return state.spotlightTiles
+    return selectedTiles(state)
+  }, [state])
+  const overlayOpen =
+    state.phase === 'bossIntro' || state.phase === 'reward' || state.phase === 'shop'
+  const locked = state.phase === 'scoring' || overlayOpen
+  const drawnKey = state.lastDrawnIds.join(',')
+  const discardedKey = state.lastDiscarded.map((t) => t.id).join(',')
+
+  const preview = useMemo(() => {
+    if (state.phase !== 'playing' || played.length === 0) return null
+    const needsBlank = played.some((t) => t.letter === '*' && !t.assigned)
+    const breakdown = needsBlank
+      ? null
+      : scoreWord(played, state.jokers, state.boss, state.hand.length)
+    if (needsBlank) {
+      return { ok: false, reason: 'Choose a letter for each blank.', breakdown: null }
+    }
+    const check = validatePlay(played, state.boss)
+    return {
+      ok: check.ok,
+      reason: check.ok ? null : check.reason,
+      breakdown,
+    }
+  }, [played, state.phase, state.jokers, state.boss, state.hand.length])
+
+  const previewJokerIds =
+    preview?.breakdown
+      ? preview.breakdown.steps.filter((s) => s.kind === 'joker').map((s) => s.jokerId)
+      : []
+
+  useEffect(() => {
+    if (!drawnKey) return
+    const n = drawnKey.split(',').filter(Boolean).length
+    const timer = window.setTimeout(() => setState((s) => clearDrawFx(s)), 560 + n * 110)
+    return () => window.clearTimeout(timer)
+  }, [drawnKey])
+
+  useEffect(() => {
+    if (!discardedKey) return
+    const n = discardedKey.split(',').filter(Boolean).length
+    const timer = window.setTimeout(() => setState((s) => clearDiscardFx(s)), 680 + n * 110)
+    return () => window.clearTimeout(timer)
+  }, [discardedKey])
 
   function dropOntoPlay(id: string) {
     setState((s) => {
@@ -35,16 +89,41 @@ export default function App() {
     })
   }
 
+  function onScoreStep(step: ScoreStep | null, letterIndex: number) {
+    if (!step) {
+      setActiveJoker(null)
+      setScoringLetter(-1)
+      return
+    }
+    if (step.kind === 'letter') {
+      setScoringLetter(letterIndex)
+      setActiveJoker(null)
+    } else if (step.kind === 'joker') {
+      setScoringLetter(-1)
+      setActiveJoker(step.jokerId)
+    } else {
+      setScoringLetter(-1)
+      setActiveJoker(null)
+    }
+  }
+
+  const tableOpen = state.phase !== 'title' && state.phase !== 'gameOver'
+  const jokerHighlights =
+    state.phase === 'scoring' ? (activeJoker ? [activeJoker] : []) : previewJokerIds
+
   return (
     <div className="app">
       <div className="glow" />
+      <CornerWells />
+      <FlyingTiles tiles={state.lastDiscarded} origins={discardOrigins} />
+
       {state.phase === 'title' ? (
         <section className="panel title-screen">
           <p className="eyebrow">A word run in pastel</p>
           <h1>Letterbloom</h1>
           <p className="lede">
-            Spell one word at a time from six tiles. Score is Scrabble chips times length, then
-            jokers. Miss the target and the streak ends.
+            Spell one word at a time from six tiles. Score is letter points times length, then
+            jokers. Miss the target and the streak ends. Coins buy shop upgrades.
           </p>
           <dl className="stats compact">
             <div>
@@ -60,26 +139,10 @@ export default function App() {
             Start a run
           </button>
           <ul className="how">
-            <li>3 plays · 3 discards · plays do not refill</li>
+            <li>3 plays · 3 discards · a full rack after every play</li>
             <li>Shop after even rounds · boss every 3rd round</li>
           </ul>
         </section>
-      ) : null}
-
-      {state.phase === 'bossIntro' && state.boss ? (
-        <BossBanner boss={state.boss} onContinue={() => setState(dismissBossIntro(state))} />
-      ) : null}
-
-      {state.phase === 'shop' ? (
-        <Shop
-          offers={state.shopOffers}
-          coins={state.coins}
-          rerollCost={state.rerollCost}
-          jokerCount={state.jokers.length}
-          onBuy={(id) => setState(buyOffer(state, id))}
-          onReroll={() => setState(rerollShop(state))}
-          onLeave={() => setState(leaveShop(state))}
-        />
       ) : null}
 
       {state.phase === 'gameOver' ? (
@@ -94,27 +157,25 @@ export default function App() {
         />
       ) : null}
 
-      {state.phase === 'playing' ? (
-        <section className="table">
+      {tableOpen ? (
+        <section className={`table ${overlayOpen ? 'dimmed' : ''}`}>
           <header className="hud">
-            <div>
-              <p className="eyebrow">Letterbloom</p>
-              <h1>Round {state.round}</h1>
-            </div>
+            <h1>Letterbloom</h1>
+            <p className="round-heading">Round {state.round}</p>
             <dl className="hud-stats">
               <div>
                 <dt>Streak</dt>
                 <dd>{state.streak}</dd>
               </div>
               <div>
-                <dt>Score</dt>
+                <dt>Round Points</dt>
                 <dd>
                   {state.roundScore}
                   <small> / {state.target}</small>
                 </dd>
               </div>
               <div>
-                <dt>Run</dt>
+                <dt>Total Run Points</dt>
                 <dd>{state.runScore}</dd>
               </div>
               <div>
@@ -132,14 +193,28 @@ export default function App() {
             </dl>
           </header>
 
-          {state.boss ? <p className="boss-chip">{bossBannerText(state.boss)}</p> : null}
+          {state.boss ? <p className="boss-banner">{bossBannerText(state.boss)}</p> : null}
 
-          <JokerRow jokers={state.jokers} />
-          <ScoreFlyup score={state.lastScore} />
-          {state.toast ? <p className="toast">{state.toast}</p> : null}
+          <JokerRow jokers={state.jokers} activeIds={jokerHighlights} />
+
+          <ScoreBanner
+            key={state.lastScore ? `${state.lastScore.word}-${state.lastScore.total}` : 'idle'}
+            scoring={state.phase === 'scoring' ? state.lastScore : null}
+            preview={state.phase === 'playing' ? preview : null}
+            toast={state.toast}
+            onStep={onScoreStep}
+            onComplete={() => {
+              setActiveJoker(null)
+              setScoringLetter(-1)
+              setState((s) => resolveScoring(s))
+            }}
+          />
 
           <PlayRow
             tiles={played}
+            locked={locked}
+            celebrating={state.phase === 'scoring'}
+            scoringLetter={scoringLetter}
             onRemove={(id) => setState(toggleSelect(state, id))}
             onAssignWild={(id, letter) => setState(assignWild(state, id, letter))}
             onReorder={(from, to) => setState(moveSelected(state, from, to))}
@@ -148,31 +223,66 @@ export default function App() {
 
           <Rack
             hand={state.hand}
-            selectedIds={state.selectedIds}
+            selectedIds={state.phase === 'playing' ? state.selectedIds : []}
+            drawnIds={state.lastDrawnIds}
+            locked={locked}
             onToggle={(id) => setState(toggleSelect(state, id))}
           />
 
           <div className="actions">
-            <button className="ghost" onClick={() => setState(clearSelection(state))}>
+            <button className="ghost" onClick={() => setState(clearSelection(state))} disabled={locked}>
               Clear
             </button>
             <button
               className="ghost"
-              onClick={() => setState(discardSelected(state))}
-              disabled={state.discardsLeft <= 0}
+              onClick={() => {
+                const origins = [...document.querySelectorAll('.play-row .tile')].map((el) => {
+                  const r = el.getBoundingClientRect()
+                  return { left: r.left, top: r.top }
+                })
+                setDiscardOrigins(origins)
+                setState((s) => discardSelected(s))
+              }}
+              disabled={locked || state.discardsLeft <= 0}
             >
               Discard
             </button>
             <button
               className="primary"
               onClick={() => setState(playWord(state))}
-              disabled={state.playsLeft <= 0}
+              disabled={locked || state.playsLeft <= 0}
             >
               Play word
             </button>
           </div>
-          <p className="fine">Unused tiles stay. Discards refill to {state.handSize}. Plays do not.</p>
         </section>
+      ) : null}
+
+      {state.phase === 'bossIntro' && state.boss ? (
+        <BossBanner boss={state.boss} onContinue={() => setState(dismissBossIntro(state))} />
+      ) : null}
+
+      {state.phase === 'reward' && state.lastPayout ? (
+        <Reward
+          payout={state.lastPayout}
+          round={state.round}
+          roundScore={state.roundScore}
+          target={state.target}
+          onContinue={() => setState(collectReward(state))}
+        />
+      ) : null}
+
+      {state.phase === 'shop' ? (
+        <Shop
+          offers={state.shopOffers}
+          coins={state.coins}
+          rerollCost={state.rerollCost}
+          jokers={state.jokers}
+          onBuy={(id) => setState(buyOffer(state, id))}
+          onSell={(index) => setState(sellJoker(state, index))}
+          onReroll={() => setState(rerollShop(state))}
+          onLeave={() => setState(leaveShop(state))}
+        />
       ) : null}
     </div>
   )

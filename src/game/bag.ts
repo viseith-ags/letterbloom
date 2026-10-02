@@ -61,13 +61,14 @@ export function drawToHandSize(
   bag: Tile[],
   discardPile: Tile[],
   handSize: number,
-): { hand: Tile[]; bag: Tile[]; discardPile: Tile[] } {
+): { hand: Tile[]; bag: Tile[]; discardPile: Tile[]; drawn: Tile[] } {
   const need = Math.max(0, handSize - hand.length)
   const result = drawTiles(bag, discardPile, need)
   return {
     hand: [...hand, ...result.drawn],
     bag: result.bag,
     discardPile: result.discardPile,
+    drawn: result.drawn,
   }
 }
 

@@ -11,7 +11,7 @@ export const JOKERS: JokerDef[] = [
   {
     id: 'petalVowels',
     name: 'Petal Vowels',
-    description: '+4 chips per vowel in the word.',
+    description: '+4 points per vowel in the word.',
     flavor: 'Aeiou, but make it floral.',
     rarity: 'common',
     cost: 4,
@@ -19,7 +19,7 @@ export const JOKERS: JokerDef[] = [
   {
     id: 'honeycomb',
     name: 'Honeycomb',
-    description: '+8 chips if the word has a doubled letter.',
+    description: '+8 points if the word has a doubled letter.',
     flavor: 'Sticky, sweet, twice as nice.',
     rarity: 'uncommon',
     cost: 6,
@@ -35,7 +35,7 @@ export const JOKERS: JokerDef[] = [
   {
     id: 'eGarden',
     name: 'E-Garden',
-    description: '+6 chips per E.',
+    description: '+6 points per E.',
     flavor: 'She has a favorite letter. It is E.',
     rarity: 'common',
     cost: 5,
@@ -67,7 +67,7 @@ export const JOKERS: JokerDef[] = [
   {
     id: 'rarePetals',
     name: 'Rare Petals',
-    description: '+15 chips per J, Q, X, or Z.',
+    description: '+15 points per J, Q, X, or Z.',
     flavor: 'The dramatic ones.',
     rarity: 'uncommon',
     cost: 6,
@@ -75,7 +75,7 @@ export const JOKERS: JokerDef[] = [
   {
     id: 'tinyBouquet',
     name: 'Tiny Bouquet',
-    description: 'If the word is 3 letters or fewer: +12 chips and +1 mult.',
+    description: 'If the word is 3 letters or fewer: +12 points and +1 mult.',
     flavor: 'Small stems still count.',
     rarity: 'common',
     cost: 5,
@@ -91,7 +91,7 @@ export const JOKERS: JokerDef[] = [
   {
     id: 'softStart',
     name: 'Soft Start',
-    description: 'The first letter scores its chips twice.',
+    description: 'The first letter scores its points twice.',
     flavor: 'Lead with something tender.',
     rarity: 'common',
     cost: 4,

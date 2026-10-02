@@ -2,7 +2,7 @@ import { BOSS_BY_ID } from '../data/bosses'
 import { isValidWord } from '../data/dictionary'
 import { JOKER_BY_ID } from '../data/jokers'
 import { letterValue, RARE_LETTERS, VOWELS } from '../data/letterValues'
-import type { ActiveBoss, ScoreBreakdown, Tile } from './types'
+import type { ActiveBoss, ScoreBreakdown, ScoreStep, Tile } from './types'
 
 export function faceLetter(tile: Tile): string {
   if (tile.letter === '*') return (tile.assigned ?? '').toUpperCase()
@@ -57,7 +57,7 @@ export function validatePlay(
   return { ok: true, word }
 }
 
-function letterChips(letter: string, index: number, boss: ActiveBoss | null): number {
+function letterPoints(letter: string, index: number, boss: ActiveBoss | null): number {
   let value = letterValue(letter)
   if (boss?.id === 'muteVowels' && VOWELS.has(letter)) value = 0
   if (boss?.id === 'ghostFirst' && index === 0) value = 0
@@ -71,16 +71,16 @@ export function scoreWord(
   handSizeAtPlay: number,
 ): ScoreBreakdown {
   const word = wordFromTiles(tiles)
-  const notes: string[] = []
-  let chips = 0
-  for (let i = 0; i < word.length; i++) {
-    chips += letterChips(word[i]!, i, boss)
-  }
-  let mult = word.length
-  notes.push(`Base ${chips} × ${mult}`)
+  const steps: ScoreStep[] = []
+  let points = 0
+  const multStart = word.length
+  let mult = multStart
 
-  if (boss) {
-    notes.push(BOSS_BY_ID[boss.id].name)
+  for (let i = 0; i < word.length; i++) {
+    const letter = word[i]!
+    const add = letterPoints(letter, i, boss)
+    points += add
+    steps.push({ kind: 'letter', letter, add, points, mult })
   }
 
   for (const jokerId of jokers) {
@@ -89,53 +89,116 @@ export function scoreWord(
     if (jokerId === 'petalVowels') {
       const n = [...word].filter((c) => VOWELS.has(c)).length
       const add = n * 4
-      chips += add
-      notes.push(`${def.name} +${add} chips`)
+      if (!add) continue
+      points += add
+      steps.push({
+        kind: 'joker',
+        jokerId,
+        name: def.name,
+        detail: `+${add} points from ${n} vowel${n === 1 ? '' : 's'}`,
+        points,
+        mult,
+      })
     } else if (jokerId === 'honeycomb') {
-      if (hasDoubleLetter(word)) {
-        chips += 8
-        notes.push(`${def.name} +8 chips`)
-      }
+      if (!hasDoubleLetter(word)) continue
+      points += 8
+      steps.push({
+        kind: 'joker',
+        jokerId,
+        name: def.name,
+        detail: '+8 points for a doubled letter',
+        points,
+        mult,
+      })
     } else if (jokerId === 'fullBloom') {
-      if (tiles.length === handSizeAtPlay && handSizeAtPlay > 0) {
-        mult *= 2
-        notes.push(`${def.name} ×2 mult`)
-      }
+      if (!(tiles.length === handSizeAtPlay && handSizeAtPlay > 0)) continue
+      mult *= 2
+      steps.push({
+        kind: 'joker',
+        jokerId,
+        name: def.name,
+        detail: '×2 mult for using the whole rack',
+        points,
+        mult,
+      })
     } else if (jokerId === 'eGarden') {
       const n = [...word].filter((c) => c === 'E').length
       const add = n * 6
-      chips += add
-      if (n) notes.push(`${def.name} +${add} chips`)
+      if (!add) continue
+      points += add
+      steps.push({
+        kind: 'joker',
+        jokerId,
+        name: def.name,
+        detail: `+${add} points from ${n} E${n === 1 ? '' : 's'}`,
+        points,
+        mult,
+      })
     } else if (jokerId === 'mirrorPond') {
-      if (isPalindrome(word)) {
-        mult += 3
-        notes.push(`${def.name} +3 mult`)
-      }
+      if (!isPalindrome(word)) continue
+      mult += 3
+      steps.push({
+        kind: 'joker',
+        jokerId,
+        name: def.name,
+        detail: '+3 mult for a palindrome',
+        points,
+        mult,
+      })
     } else if (jokerId === 'rarePetals') {
       const n = [...word].filter((c) => RARE_LETTERS.has(c)).length
       const add = n * 15
-      chips += add
-      if (n) notes.push(`${def.name} +${add} chips`)
+      if (!add) continue
+      points += add
+      steps.push({
+        kind: 'joker',
+        jokerId,
+        name: def.name,
+        detail: `+${add} points from rare letters`,
+        points,
+        mult,
+      })
     } else if (jokerId === 'tinyBouquet') {
-      if (word.length <= 3) {
-        chips += 12
-        mult += 1
-        notes.push(`${def.name} +12 chips +1 mult`)
-      }
+      if (word.length > 3) continue
+      points += 12
+      mult += 1
+      steps.push({
+        kind: 'joker',
+        jokerId,
+        name: def.name,
+        detail: '+12 points and +1 mult for a short word',
+        points,
+        mult,
+      })
     } else if (jokerId === 'longStem') {
-      if (word.length >= 5) {
-        mult += 2
-        notes.push(`${def.name} +2 mult`)
-      }
+      if (word.length < 5) continue
+      mult += 2
+      steps.push({
+        kind: 'joker',
+        jokerId,
+        name: def.name,
+        detail: '+2 mult for 5+ letters',
+        points,
+        mult,
+      })
     } else if (jokerId === 'softStart') {
-      const extra = letterChips(word[0] ?? '', 0, boss)
-      chips += extra
-      notes.push(`${def.name} +${extra} chips`)
+      const extra = letterPoints(word[0] ?? '', 0, boss)
+      if (!extra) continue
+      points += extra
+      steps.push({
+        kind: 'joker',
+        jokerId,
+        name: def.name,
+        detail: `+${extra} points, first letter again`,
+        points,
+        mult,
+      })
     }
   }
 
-  const total = chips * mult
-  return { word, chips, mult, total, notes }
+  const total = points * mult
+  steps.push({ kind: 'total', points, mult, total })
+  return { word, points, mult, total, steps }
 }
 
 export function bossBannerText(boss: ActiveBoss): string {
@@ -144,4 +207,9 @@ export function bossBannerText(boss: ActiveBoss): string {
     return `${def.name} — every word must include ${boss.requiredLetter}.`
   }
   return `${def.name} — ${def.description}`
+}
+
+export function jokerSellValue(jokerId: string): number {
+  const cost = JOKER_BY_ID[jokerId]?.cost ?? 0
+  return Math.max(1, Math.floor(cost / 2))
 }

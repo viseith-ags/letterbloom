@@ -4,12 +4,17 @@ export type Tile = {
   assigned?: string
 }
 
+export type ScoreStep =
+  | { kind: 'letter'; letter: string; add: number; points: number; mult: number }
+  | { kind: 'joker'; jokerId: string; name: string; detail: string; points: number; mult: number }
+  | { kind: 'total'; points: number; mult: number; total: number }
+
 export type ScoreBreakdown = {
   word: string
-  chips: number
+  points: number
   mult: number
   total: number
-  notes: string[]
+  steps: ScoreStep[]
 }
 
 export type ShopOffer =
@@ -31,11 +36,33 @@ export type ActiveBoss = {
   requiredLetter?: string
 }
 
-export type RunPhase = 'title' | 'bossIntro' | 'playing' | 'shop' | 'gameOver'
+export type RunPhase =
+  | 'title'
+  | 'bossIntro'
+  | 'playing'
+  | 'scoring'
+  | 'reward'
+  | 'shop'
+  | 'gameOver'
 
 export type Records = {
   bestStreak: number
   bestScore: number
+}
+
+export type Payout = {
+  base: number
+  unusedPlays: number
+  bossBonus: number
+  interest: number
+  total: number
+}
+
+export type PendingFill = {
+  hand: Tile[]
+  bag: Tile[]
+  discardPile: Tile[]
+  drawnIds: string[]
 }
 
 export type RunState = {
@@ -60,6 +87,12 @@ export type RunState = {
   rerollCost: number
   nextTileId: number
   lastScore: ScoreBreakdown | null
+  spotlightTiles: Tile[]
+  lastDrawnIds: string[]
+  lastDiscarded: Tile[]
+  lastPayout: Payout | null
+  pendingFill: PendingFill | null
+  pendingOutcome: 'continue' | 'won' | 'lost' | null
   toast: string | null
   records: Records
 }

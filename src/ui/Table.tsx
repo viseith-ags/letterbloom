@@ -1,9 +1,12 @@
 import { JokerCard, TileView } from './TileView'
-import { faceLetter } from '../game/scoring'
+import { faceLetter, jokerSellValue } from '../game/scoring'
 import type { Tile } from '../game/types'
 
 type Props = {
   tiles: Tile[]
+  locked?: boolean
+  celebrating?: boolean
+  scoringLetter?: number
   onRemove: (id: string) => void
   onAssignWild: (id: string, letter: string) => void
   onReorder: (from: number, to: number) => void
@@ -12,12 +15,24 @@ type Props = {
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 
-export function PlayRow({ tiles, onRemove, onAssignWild, onReorder, onDropTile }: Props) {
+export function PlayRow({
+  tiles,
+  locked,
+  celebrating,
+  scoringLetter,
+  onRemove,
+  onAssignWild,
+  onReorder,
+  onDropTile,
+}: Props) {
   return (
     <div
-      className="play-row"
-      onDragOver={(e) => e.preventDefault()}
+      className={`play-row ${celebrating ? 'celebrating' : ''}`}
+      onDragOver={(e) => {
+        if (!locked) e.preventDefault()
+      }}
       onDrop={(e) => {
+        if (locked) return
         const id = e.dataTransfer.getData('text/tile-id')
         if (id) onDropTile(id)
       }}
@@ -29,8 +44,12 @@ export function PlayRow({ tiles, onRemove, onAssignWild, onReorder, onDropTile }
             tile={tile}
             selected
             order={index + 1}
+            celebrating={celebrating}
+            celebrateIndex={index}
+            scoring={scoringLetter === index}
+            locked={locked}
             onClick={() => onRemove(tile.id)}
-            draggable
+            draggable={!locked}
             onDragStart={(e) => {
               e.dataTransfer.setData('text/play-index', String(index))
               e.dataTransfer.setData('text/tile-id', tile.id)
@@ -38,6 +57,7 @@ export function PlayRow({ tiles, onRemove, onAssignWild, onReorder, onDropTile }
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.stopPropagation()
+              if (locked) return
               const fromRaw = e.dataTransfer.getData('text/play-index')
               if (fromRaw !== '') {
                 onReorder(Number(fromRaw), index)
@@ -47,7 +67,7 @@ export function PlayRow({ tiles, onRemove, onAssignWild, onReorder, onDropTile }
               if (id) onDropTile(id)
             }}
           />
-          {tile.letter === '*' ? (
+          {tile.letter === '*' && !locked ? (
             <label className="wild-pick">
               <span>Blank</span>
               <select
@@ -69,17 +89,37 @@ export function PlayRow({ tiles, onRemove, onAssignWild, onReorder, onDropTile }
   )
 }
 
-export function JokerRow({ jokers }: { jokers: string[] }) {
+export function JokerRow({
+  jokers,
+  activeIds,
+  onSell,
+}: {
+  jokers: string[]
+  activeIds?: string[]
+  onSell?: (index: number) => void
+}) {
+  const active = new Set(activeIds ?? [])
+  const slots = Array.from({ length: 5 }, (_, i) => {
+    const id = jokers[i]
+    return (
+      <div key={id ?? `empty-${i}`} className="joker-slot">
+        {id ? (
+          <JokerCard
+            id={id}
+            active={active.has(id)}
+            sellFor={onSell ? jokerSellValue(id) : undefined}
+            onSell={onSell ? () => onSell(i) : undefined}
+          />
+        ) : (
+          <span>empty</span>
+        )}
+      </div>
+    )
+  })
   return (
-    <div className="joker-row" aria-label="Jokers">
-      {Array.from({ length: 5 }, (_, i) => {
-        const id = jokers[i]
-        return (
-          <div key={id ?? `empty-${i}`} className="joker-slot">
-            {id ? <JokerCard id={id} /> : <span>empty</span>}
-          </div>
-        )
-      })}
+    <div className="joker-board" aria-label="Jokers">
+      <div className="joker-row">{slots.slice(0, 3)}</div>
+      <div className="joker-row">{slots.slice(3)}</div>
     </div>
   )
 }
