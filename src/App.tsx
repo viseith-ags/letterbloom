@@ -23,7 +23,7 @@ import {
 } from './game/run'
 import type { RunState, ScoreStep } from './game/types'
 import { BossBanner } from './ui/BossBanner'
-import { CornerWells, FlyingTiles, type FlyOrigin } from './ui/FlyingTiles'
+import { DiscardWell, DrawWell, FlyingTiles, type FlyOrigin } from './ui/FlyingTiles'
 import { GameOver } from './ui/GameOver'
 import { Rack } from './ui/Rack'
 import { Reward } from './ui/Reward'
@@ -36,6 +36,7 @@ export default function App() {
   const [activeJoker, setActiveJoker] = useState<string | null>(null)
   const [scoringLetter, setScoringLetter] = useState(-1)
   const [discardOrigins, setDiscardOrigins] = useState<FlyOrigin[]>([])
+  const [discardDest, setDiscardDest] = useState<FlyOrigin | undefined>(undefined)
   const played = useMemo(() => {
     if (state.phase === 'scoring') return state.spotlightTiles
     return selectedTiles(state)
@@ -114,8 +115,7 @@ export default function App() {
   return (
     <div className="app">
       <div className="glow" />
-      <CornerWells />
-      <FlyingTiles tiles={state.lastDiscarded} origins={discardOrigins} />
+      <FlyingTiles tiles={state.lastDiscarded} origins={discardOrigins} dest={discardDest} />
 
       {state.phase === 'title' ? (
         <section className="panel title-screen">
@@ -193,7 +193,9 @@ export default function App() {
             </dl>
           </header>
 
-          {state.boss ? <p className="boss-banner">{bossBannerText(state.boss)}</p> : null}
+          <p className={`boss-banner ${state.boss ? '' : 'idle'}`}>
+            {state.boss ? bossBannerText(state.boss) : '\u00a0'}
+          </p>
 
           <JokerRow jokers={state.jokers} activeIds={jokerHighlights} />
 
@@ -230,30 +232,38 @@ export default function App() {
           />
 
           <div className="actions">
-            <button className="ghost" onClick={() => setState(clearSelection(state))} disabled={locked}>
-              Clear
-            </button>
             <button
-              className="ghost"
+              className="btn-discard"
               onClick={() => {
                 const origins = [...document.querySelectorAll('.play-row .tile')].map((el) => {
                   const r = el.getBoundingClientRect()
                   return { left: r.left, top: r.top }
                 })
+                const well = document.querySelector('.discard-well')
+                const wr = well?.getBoundingClientRect()
                 setDiscardOrigins(origins)
+                setDiscardDest(wr ? { left: wr.left + 10, top: wr.top + 8 } : undefined)
                 setState((s) => discardSelected(s))
               }}
               disabled={locked || state.discardsLeft <= 0}
             >
               Discard
             </button>
+            <button className="ghost" onClick={() => setState(clearSelection(state))} disabled={locked}>
+              Clear
+            </button>
             <button
-              className="primary"
+              className="primary btn-play"
               onClick={() => setState(playWord(state))}
               disabled={locked || state.playsLeft <= 0}
             >
-              Play word
+              Play
             </button>
+          </div>
+
+          <div className="wells-row">
+            <DiscardWell />
+            <DrawWell />
           </div>
         </section>
       ) : null}

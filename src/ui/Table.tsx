@@ -27,7 +27,7 @@ export function PlayRow({
 }: Props) {
   return (
     <div
-      className={`play-row ${celebrating ? 'celebrating' : ''}`}
+      className={`play-row ${celebrating ? 'celebrating' : ''} ${tiles.length === 0 ? 'empty' : ''}`}
       onDragOver={(e) => {
         if (!locked) e.preventDefault()
       }}
