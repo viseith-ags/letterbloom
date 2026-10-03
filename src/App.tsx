@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { bossBannerText, scoreWord, validatePlay } from './game/scoring'
 import {
   assignWild,
@@ -30,6 +30,7 @@ import { Reward } from './ui/Reward'
 import { ScoreBanner } from './ui/ScoreBanner'
 import { Shop } from './ui/Shop'
 import { JokerRow, PlayRow } from './ui/Table'
+import { PLAY_DESIGN_WIDTH, PLAY_FRAME } from './ui/playFrame'
 
 export default function App() {
   const [state, setState] = useState<RunState>(() => titleState())
@@ -111,11 +112,50 @@ export default function App() {
   const tableOpen = state.phase !== 'title' && state.phase !== 'gameOver'
   const jokerHighlights =
     state.phase === 'scoring' ? (activeJoker ? [activeJoker] : []) : previewJokerIds
+  const stageRef = useRef<HTMLDivElement>(null)
+  const columnRef = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const stage = stageRef.current
+    const column = columnRef.current
+    const scaler = column?.parentElement
+    if (!stage || !column || !scaler) return
+
+    const fit = () => {
+      const box = stage.getBoundingClientRect()
+      const columnW = Math.min(box.width, box.height * (PLAY_FRAME.width / PLAY_FRAME.height))
+      column.style.width = `${PLAY_DESIGN_WIDTH}px`
+      column.style.transform = 'none'
+      const contentH = Math.max(column.scrollHeight, column.offsetHeight, 1)
+      const scale = Math.min(columnW / PLAY_DESIGN_WIDTH, box.height / contentH)
+      column.style.transformOrigin = 'top left'
+      column.style.transform = `scale(${scale})`
+      scaler.style.width = `${PLAY_DESIGN_WIDTH * scale}px`
+      scaler.style.height = `${contentH * scale}px`
+      stage.style.setProperty('--play-frame-w', String(PLAY_FRAME.width))
+      stage.style.setProperty('--play-frame-h', String(PLAY_FRAME.height))
+      stage.style.setProperty('--play-column-w', `${columnW}px`)
+    }
+
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(stage)
+    window.addEventListener('resize', fit)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', fit)
+    }
+  }, [state.phase, overlayOpen])
 
   return (
-    <div className="app">
-      <div className="glow" />
-      <FlyingTiles tiles={state.lastDiscarded} origins={discardOrigins} dest={discardDest} />
+    <div className="stage-shell">
+      <div className="stage" ref={stageRef}>
+        <div className="app">
+          <div className="glow" />
+          <FlyingTiles tiles={state.lastDiscarded} origins={discardOrigins} dest={discardDest} />
+          <div className={`board ${tableOpen ? 'table' : ''}`}>
+            <div className="scaler">
+              <div className="play-column" ref={columnRef}>
 
       {state.phase === 'title' ? (
         <section className="panel title-screen">
@@ -158,7 +198,7 @@ export default function App() {
       ) : null}
 
       {tableOpen ? (
-        <section className={`table ${overlayOpen ? 'dimmed' : ''}`}>
+        <div className={overlayOpen ? 'run-play dimmed' : 'run-play'}>
           <header className="hud">
             <h1>Letterbloom</h1>
             <p className="round-heading">Round {state.round}</p>
@@ -265,21 +305,7 @@ export default function App() {
             <DiscardWell />
             <DrawWell />
           </div>
-        </section>
-      ) : null}
-
-      {state.phase === 'bossIntro' && state.boss ? (
-        <BossBanner boss={state.boss} onContinue={() => setState(dismissBossIntro(state))} />
-      ) : null}
-
-      {state.phase === 'reward' && state.lastPayout ? (
-        <Reward
-          payout={state.lastPayout}
-          round={state.round}
-          roundScore={state.roundScore}
-          target={state.target}
-          onContinue={() => setState(collectReward(state))}
-        />
+        </div>
       ) : null}
 
       {state.phase === 'shop' ? (
@@ -294,6 +320,25 @@ export default function App() {
           onLeave={() => setState(leaveShop(state))}
         />
       ) : null}
+              </div>
+            </div>
+          </div>
+
+      {state.phase === 'bossIntro' && state.boss ? (
+        <BossBanner boss={state.boss} onContinue={() => setState(dismissBossIntro(state))} />
+      ) : null}
+
+      {state.phase === 'reward' && state.lastPayout ? (
+        <Reward
+          payout={state.lastPayout}
+          round={state.round}
+          roundScore={state.roundScore}
+          target={state.target}
+          onContinue={() => setState(collectReward(state))}
+        />
+      ) : null}
+        </div>
+      </div>
     </div>
   )
 }

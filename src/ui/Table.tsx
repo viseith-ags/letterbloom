@@ -119,7 +119,7 @@ export function JokerRow({
   return (
     <div className="joker-board" aria-label="Jokers">
       <div className="joker-row">{slots.slice(0, 3)}</div>
-      <div className="joker-row">{slots.slice(3)}</div>
+      <div className="joker-row joker-row-bottom">{slots.slice(3)}</div>
     </div>
   )
 }

@@ -26,8 +26,8 @@ export function Shop({
   onLeave,
 }: Props) {
   return (
-    <div className="overlay">
-    <section className="panel shop overlay-card">
+    <div className="shop-layer">
+      <section className="panel shop">
       <header className="panel-head">
         <div>
           <p className="eyebrow">Between rounds</p>
